@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 위치 권한 설명 -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>나침반 방향 정보 계산 및 현재 위치를 표시하기 위해 위치 정보가 필요합니다.</string>
+
+  <!-- 블루투스 권한 설명 -->
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>나침반 데이터를 다른 기기와 공유하기 위해 블루투스 접근이 필요합니다.</string>
+
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>나침반 데이터를 다른 기기와 공유하기 위해 블루투스 접근이 필요합니다.</string>
+</dict>
+</plist>

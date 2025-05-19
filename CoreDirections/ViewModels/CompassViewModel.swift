@@ -50,21 +50,76 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // 지오코더
     private let geocoder = CLGeocoder()
     
+    // 서비스 초기화 여부 상태값
+    @Published var isLocationServicesInitialized: Bool = false
+    @Published var isMotionServicesInitialized: Bool = false
+    
     override init() {
         super.init()
         
-        // 위치 관리자 설정
+        // 위치 관리자 설정 - 하지만 권한 요청은 아직 하지 않음
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        
+        // 현재 권한 상태 확인
+        checkLocationAuthorizationStatus()
+        
+        // BluetoothManager 상태 관찰
+        setupBluetoothObservers()
+    }
+    
+    deinit {
+        stopLocationServices()
+        stopMotionServices()
+        stopDataTransmission()
+    }
+    
+    // 위치 서비스 권한 상태 확인
+    private func checkLocationAuthorizationStatus() {
+        if #available(iOS 14.0, *) {
+            switch locationManager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
+                isAuthorized = true
+            default:
+                isAuthorized = false
+            }
+        } else {
+            switch CLLocationManager.authorizationStatus() {
+            case .authorizedWhenInUse, .authorizedAlways:
+                isAuthorized = true
+            default:
+                isAuthorized = false
+            }
+        }
+    }
+    
+    // 위치 서비스 시작 - 사용자가 명시적으로 시작할 때 호출
+    func startLocationServices() {
+        // 이미 초기화되었다면 다시 시작하지 않음
+        if isLocationServicesInitialized {
+            return
+        }
+        
+        // 위치 권한 요청
         locationManager.requestWhenInUseAuthorization()
+        
+        // 위치 업데이트 시작
+        locationManager.startUpdatingLocation()
         
         // 나침반 업데이트 시작
         if CLLocationManager.headingAvailable() {
             locationManager.startUpdatingHeading()
         }
         
-        // 위치 업데이트 시작
-        locationManager.startUpdatingLocation()
+        isLocationServicesInitialized = true
+    }
+    
+    // 모션 서비스 시작
+    func startMotionServices() {
+        // 이미 초기화되었다면 다시 시작하지 않음
+        if isMotionServicesInitialized {
+            return
+        }
         
         // 모션 업데이트 시작
         if motionManager.isDeviceMotionAvailable {
@@ -88,14 +143,24 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                     )
                 }
             }
+            
+            isMotionServicesInitialized = true
         }
-        
-        // BluetoothManager 상태 관찰
-        setupBluetoothObservers()
     }
     
-    deinit {
-        stopDataTransmission()
+    // 위치 서비스 중지
+    func stopLocationServices() {
+        locationManager.stopUpdatingLocation()
+        locationManager.stopUpdatingHeading()
+        isLocationServicesInitialized = false
+    }
+    
+    // 모션 서비스 중지
+    func stopMotionServices() {
+        if motionManager.isDeviceMotionActive {
+            motionManager.stopDeviceMotionUpdates()
+        }
+        isMotionServicesInitialized = false
     }
     
     // BluetoothManager 상태 관찰 설정
@@ -116,6 +181,11 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     // 데이터 전송 관련 Cancellable 저장
     private var cancellables = Set<AnyCancellable>()
+    
+    // 블루투스 스캔 시작 - 사용자가 명시적으로 블루투스 기능을 시작할 때 호출
+    func startBluetoothScanning() {
+        bluetoothManager.startScanning()
+    }
     
     // 데이터 전송 시작
     func startDataTransmission() {
@@ -144,6 +214,7 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         transmissionTimer = nil
         
         if isDataTransmissionEnabled {
+            isDataTransmissionEnabled = false
             print("Data transmission stopped")
         }
     }
@@ -160,9 +231,35 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     // 위치 권한 상태 업데이트
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        switch manager.authorizationStatus {
+        if #available(iOS 14.0, *) {
+            switch manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
+                isAuthorized = true
+                // 권한이 허용되면 서비스 시작
+                if !isLocationServicesInitialized {
+                    startLocationServices()
+                }
+                if !isMotionServicesInitialized {
+                    startMotionServices()
+                }
+            default:
+                isAuthorized = false
+            }
+        }
+    }
+    
+    // iOS 14 미만 호환
+    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        switch status {
         case .authorizedWhenInUse, .authorizedAlways:
             isAuthorized = true
+            // 권한이 허용되면 서비스 시작
+            if !isLocationServicesInitialized {
+                startLocationServices()
+            }
+            if !isMotionServicesInitialized {
+                startMotionServices()
+            }
         default:
             isAuthorized = false
         }

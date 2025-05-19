@@ -12,7 +12,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     // MARK: - Properties
     
     // CoreBluetooth 관련 속성
-    private var centralManager: CBCentralManager!
+    private var centralManager: CBCentralManager?
     @Published var discoveredPeripherals: [CBPeripheral] = []
     @Published var connectedPeripheral: CBPeripheral?
     @Published var isScanning: Bool = false
@@ -27,17 +27,36 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     
     // MARK: - Initialization
     
+    // 지연 초기화 - 권한을 즉시 요청하지 않음
     override init() {
         super.init()
-        centralManager = CBCentralManager(delegate: self, queue: nil)
+        // 초기화만 하고 centralManager는 실제 스캔 시작할 때 생성
+    }
+    
+    // 실제 CBCentralManager 초기화 (지연 초기화)
+    private func initializeCentralManager() {
+        guard centralManager == nil else { return }
+        
+        let options: [String: Any] = [
+            CBCentralManagerOptionShowPowerAlertKey: false, // 전원 알림 비활성화
+            // 블루투스 사용 권한 대화상자가 표시되는 시점을 제어할 수 있도록 설정
+            CBCentralManagerOptionRestoreIdentifierKey: "CoreDirectionsBluetoothManager"
+        ]
+        
+        centralManager = CBCentralManager(delegate: self, queue: nil, options: options)
     }
     
     // MARK: - Public Methods
     
     /// 주변 기기 스캔 시작
     func startScanning() {
-        guard centralManager.state == .poweredOn else {
-            print("Bluetooth is not powered on")
+        // 중앙 관리자가 초기화되지 않았다면 초기화
+        if centralManager == nil {
+            initializeCentralManager()
+        }
+        
+        guard let centralManager = centralManager, centralManager.state == .poweredOn else {
+            print("Bluetooth is not powered on or not initialized")
             return
         }
         
@@ -49,6 +68,8 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     
     /// 주변 기기 스캔 중지
     func stopScanning() {
+        guard let centralManager = centralManager else { return }
+        
         centralManager.stopScan()
         isScanning = false
         print("Scanning stopped")
@@ -56,13 +77,16 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     
     /// 특정 기기에 연결
     func connect(to peripheral: CBPeripheral) {
+        guard let centralManager = centralManager else { return }
+        
         centralManager.connect(peripheral, options: nil)
         print("Connecting to \(peripheral.name ?? "Unknown Device")...")
     }
     
     /// 연결 해제
     func disconnect() {
-        guard let peripheral = connectedPeripheral else { return }
+        guard let centralManager = centralManager, let peripheral = connectedPeripheral else { return }
+        
         centralManager.cancelPeripheralConnection(peripheral)
         print("Disconnecting from \(peripheral.name ?? "Unknown Device")...")
     }
@@ -199,7 +223,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                 print("Found target characteristic for data transfer")
                 dataCharacteristic = characteristic
                 
-                // ��림 활성화 (기기가 알림을 지원하는 경우)
+                // 알림 활성화 (기기가 알림을 지원하는 경우)
                 if characteristic.properties.contains(.notify) {
                     peripheral.setNotifyValue(true, for: characteristic)
                 }

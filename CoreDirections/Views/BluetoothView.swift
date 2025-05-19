@@ -12,10 +12,16 @@ struct BluetoothView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     @Environment(\.presentationMode) var presentationMode
     
+    // 상태 변수
+    @State private var showFirstTimeInfo: Bool = true
+    
     var body: some View {
         NavigationView {
             VStack {
-                if bluetoothManager.isConnected {
+                if showFirstTimeInfo {
+                    // 첫 사용 시 정보 및 권한 안내
+                    bluetoothInfoView
+                } else if bluetoothManager.isConnected {
                     // 연결된 상태 화면
                     connectedDeviceView
                 } else {
@@ -25,16 +31,95 @@ struct BluetoothView: View {
             }
             .padding()
             .navigationTitle("블루투스 연결")
-            .navigationBarItems(trailing: Button(action: {
-                if bluetoothManager.isScanning {
-                    bluetoothManager.stopScanning()
-                } else {
-                    bluetoothManager.startScanning()
+            .navigationBarItems(
+                leading: showFirstTimeInfo ? nil : Button(action: {
+                    if bluetoothManager.isScanning {
+                        bluetoothManager.stopScanning()
+                    } else {
+                        bluetoothManager.startScanning()
+                    }
+                }) {
+                    Text(bluetoothManager.isScanning ? "스캔 중지" : "스캔 시작")
+                },
+                trailing: Button(action: {
+                    presentationMode.wrappedValue.dismiss()
+                }) {
+                    Text("닫기")
                 }
-            }) {
-                Text(bluetoothManager.isScanning ? "스캔 중지" : "스캔 시작")
-            })
+            )
         }
+    }
+    
+    // 블루투스 정보 및 첫 사용 가이드 화면
+    private var bluetoothInfoView: some View {
+        VStack(spacing: 25) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 60))
+                .foregroundColor(.blue)
+            
+            Text("블루투스 기기에 연결하기")
+                .font(.title2)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.center)
+            
+            Text("이 기능을 사용하면 주변의 블루투스 기기를 검색하고, 연결하여 나침반 데이터를 전송할 수 있습니다.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+            
+            Spacer().frame(height: 20)
+            
+            // 권한 요청 및 스캔 시작 버튼
+            Button(action: {
+                // 사용자가 명시적으로 블루투스 권한 요청
+                bluetoothManager.startScanning()
+                showFirstTimeInfo = false
+            }) {
+                Text("기기 검색 시작")
+                    .fontWeight(.semibold)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+            }
+            .padding(.horizontal, 50)
+            
+            Spacer()
+            
+            // 추가 설명
+            VStack(alignment: .leading, spacing: 12) {
+                Text("블루투스 연결은 다음과 같이 사용됩니다:")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Mac 또는 다른 기기로 나침반 데이터 전송")
+                }
+                .font(.subheadline)
+                
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("위치, 고도, 방향 정보를 실시간으로 공유")
+                }
+                .font(.subheadline)
+                
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("권한을 허용하지 않으면 블루투스 기능을 사용할 수 없습니다.")
+                }
+                .font(.subheadline)
+            }
+            .padding()
+            .background(Color(UIColor.systemGray6))
+            .cornerRadius(10)
+            .padding(.horizontal)
+        }
+        .padding()
     }
     
     // 연결된 기기 화면
