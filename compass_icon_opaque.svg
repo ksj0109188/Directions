@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 배경 (완전 불투명) -->
+  <rect width="1024" height="1024" rx="224" fill="#0A84FF" />
+  
+  <!-- 바깥쪽 원 -->
+  <circle cx="512" cy="512" r="380" fill="none" stroke="white" stroke-width="24" />
+  
+  <!-- 안쪽 원 -->
+  <circle cx="512" cy="512" r="320" fill="none" stroke="white" stroke-width="8" />
+  
+  <!-- 십자선 -->
+  <line x1="512" y1="192" x2="512" y2="832" stroke="white" stroke-width="8" />
+  <line x1="192" y1="512" x2="832" y2="512" stroke="white" stroke-width="8" />
+  
+  <!-- 방향 표시 (N, E, S, W) -->
+  <text x="512" y="192" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white">N</text>
+  <text x="832" y="512" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white">E</text>
+  <text x="512" y="832" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white">S</text>
+  <text x="192" y="512" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="white">W</text>
+  
+  <!-- 나침반 바늘 -->
+  <g transform="translate(512, 512)">
+    <!-- 북쪽 방향 (빨간색) -->
+    <path d="M0,-260 L30,-160 L0,-100 L-30,-160 Z" fill="#FF3B30" />
+    <!-- 남쪽 방향 (흰색) -->
+    <path d="M0,260 L30,160 L0,100 L-30,160 Z" fill="white" />
+  </g>
+  
+  <!-- 중앙 원 -->
+  <circle cx="512" cy="512" r="40" fill="white" />
+  <circle cx="512" cy="512" r="20" fill="#0A84FF" />
+</svg>
