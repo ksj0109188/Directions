@@ -8,95 +8,132 @@
 import Foundation
 import CoreBluetooth
 
-class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+class BluetoothManager: NSObject, ObservableObject, CBPeripheralManagerDelegate {
     // MARK: - Properties
     
     // CoreBluetooth 관련 속성
-    private var centralManager: CBCentralManager?
+    private var peripheralManager: CBPeripheralManager?
+    @Published var isAdvertising: Bool = false
+    @Published var isConnected: Bool = false
+    @Published var connectedCentral: CBCentral?
+    
+    // 이전 속성(CBCentralManager용)과의 호환성을 위한 더미 속성
     @Published var discoveredPeripherals: [CBPeripheral] = []
     @Published var connectedPeripheral: CBPeripheral?
     @Published var isScanning: Bool = false
-    @Published var isConnected: Bool = false
     
-    // 서비스 및 특성 UUID
-    private let serviceUUID = CBUUID(string: "180D") // 기본 Heart Rate Service UUID (테스트용)
-    private let characteristicUUID = CBUUID(string: "2A37") // 기본 Heart Rate Measurement UUID (테스트용)
+    // 서비스 및 특성 UUID - 사용자 정의 UUID로 변경
+    private let serviceUUID = CBUUID(string: "A1B2C3D4-1234-5678-9ABC-DEF012345678")
+    private let characteristicUUID = CBUUID(string: "B1A2C3D4-1234-5678-9ABC-DEF012345678")
     
     // 데이터 전송용 특성
-    private var dataCharacteristic: CBCharacteristic?
+    private var dataCharacteristic: CBMutableCharacteristic?
+    private var dataService: CBMutableService?
+    
+    // 연결된 central 장치들
+    @Published var subscribedCentrals: [CBCentral] = []
     
     // MARK: - Initialization
     
     // 지연 초기화 - 권한을 즉시 요청하지 않음
     override init() {
         super.init()
-        // 초기화만 하고 centralManager는 실제 스캔 시작할 때 생성
+        // 초기화만 하고 peripheralManager는 실제 광고 시작할 때 생성
     }
     
-    // 실제 CBCentralManager 초기화 (지연 초기화)
-    private func initializeCentralManager() {
-        guard centralManager == nil else { return }
+    // 실제 CBPeripheralManager 초기화 (지연 초기화)
+    private func initializePeripheralManager() {
+        guard peripheralManager == nil else { return }
         
+        // 복원 식별자 없이 초기화 (단순화)
         let options: [String: Any] = [
-            CBCentralManagerOptionShowPowerAlertKey: false, // 전원 알림 비활성화
-            // 블루투스 사용 권한 대화상자가 표시되는 시점을 제어할 수 있도록 설정
-            CBCentralManagerOptionRestoreIdentifierKey: "CoreDirectionsBluetoothManager"
+            CBPeripheralManagerOptionShowPowerAlertKey: false // 전원 알림 비활성화
         ]
         
-        centralManager = CBCentralManager(delegate: self, queue: nil, options: options)
+        peripheralManager = CBPeripheralManager(delegate: self, queue: nil, options: options)
     }
     
     // MARK: - Public Methods
     
-    /// 주변 기기 스캔 시작
-    func startScanning() {
-        // 중앙 관리자가 초기화되지 않았다면 초기화
-        if centralManager == nil {
-            initializeCentralManager()
+    /// 광고 시작 (peripheralManager 역할)
+    func startAdvertising() {
+        // peripheralManager가 초기화되지 않았다면 초기화
+        if peripheralManager == nil {
+            initializePeripheralManager()
         }
         
-        guard let centralManager = centralManager, centralManager.state == .poweredOn else {
+        guard let peripheralManager = peripheralManager, peripheralManager.state == .poweredOn else {
             print("Bluetooth is not powered on or not initialized")
             return
         }
         
-        discoveredPeripherals.removeAll()
-        centralManager.scanForPeripherals(withServices: nil, options: nil)
-        isScanning = true
-        print("Scanning started")
+        // 이미 광고 중이라면 중단
+        if isAdvertising {
+            peripheralManager.stopAdvertising()
+        }
+        
+        // 서비스 생성
+        setupServices()
+        
+        // 광고 시작
+        let advertisementData: [String: Any] = [
+            CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
+            CBAdvertisementDataLocalNameKey: "Compass Data"
+        ]
+        
+        peripheralManager.startAdvertising(advertisementData)
+        isAdvertising = true
+        print("Advertising started")
     }
     
-    /// 주변 기기 스캔 중지
-    func stopScanning() {
-        guard let centralManager = centralManager else { return }
+    /// 광고 중지
+    func stopAdvertising() {
+        guard let peripheralManager = peripheralManager else { return }
         
-        centralManager.stopScan()
-        isScanning = false
-        print("Scanning stopped")
+        peripheralManager.stopAdvertising()
+        isAdvertising = false
+        print("Advertising stopped")
     }
     
-    /// 특정 기기에 연결
-    func connect(to peripheral: CBPeripheral) {
-        guard let centralManager = centralManager else { return }
+    /// 서비스 및 특성 설정
+    private func setupServices() {
+        guard let peripheralManager = peripheralManager else { return }
         
-        centralManager.connect(peripheral, options: nil)
-        print("Connecting to \(peripheral.name ?? "Unknown Device")...")
-    }
-    
-    /// 연결 해제
-    func disconnect() {
-        guard let centralManager = centralManager, let peripheral = connectedPeripheral else { return }
+        // 기존 서비스 제거
+        if let service = dataService {
+            peripheralManager.removeAllServices()
+        }
         
-        centralManager.cancelPeripheralConnection(peripheral)
-        print("Disconnecting from \(peripheral.name ?? "Unknown Device")...")
+        // 특성 생성 - 읽기, 쓰기, 알림 권한 부여
+        dataCharacteristic = CBMutableCharacteristic(
+            type: characteristicUUID,
+            properties: [.read, .write, .notify],
+            value: nil,
+            permissions: [.readable, .writeable]
+        )
+        
+        // 서비스 생성
+        dataService = CBMutableService(type: serviceUUID, primary: true)
+        
+        // 서비스에 특성 추가
+        if let characteristic = dataCharacteristic {
+            dataService?.characteristics = [characteristic]
+        }
+        
+        // 서비스 추가
+        if let service = dataService {
+            peripheralManager.add(service)
+            print("Service added")
+        }
     }
     
     /// JSON 데이터 전송
     func sendCompassData(_ compassData: CompassData, latitude: Double, longitude: Double, altitude: Double) {
-        guard let peripheral = connectedPeripheral,
-              let characteristic = dataCharacteristic,
-              peripheral.state == .connected else {
-            print("Cannot send data: No connected device or characteristic")
+        guard let peripheralManager = peripheralManager,
+              peripheralManager.state == .poweredOn,
+              isAdvertising else {
+            // 구독자가 없더라도 광고 중이라면 계속 실행 (구독자가 나타날 것에 대비)
+            print("Waiting for subscribers while advertising")
             return
         }
         
@@ -118,40 +155,71 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: dataDict, options: [])
             
-            // 데이터 분할이 필요한 경우를 대비 (BLE 패킷 크기 제한)
-            let maxLength = 20 // BLE의 일반적인 MTU 크기 고려 (실제로는 협상될 수 있음)
-            let dataLength = jsonData.count
+            // 구독한 central로 데이터 전송 (notify)
+            guard let characteristic = dataCharacteristic else {
+                print("Characteristic not found")
+                return
+            }
             
-            if dataLength <= maxLength {
-                // 단일 패킷으로 전송
-                peripheral.writeValue(jsonData, for: characteristic, type: .withResponse)
-                print("Data sent in single packet: \(jsonData.count) bytes")
-            } else {
-                // 여러 패킷으로 분할 전송
-                var offset = 0
-                while offset < dataLength {
-                    let length = min(maxLength, dataLength - offset)
-                    let chunk = jsonData.subdata(in: offset..<(offset + length))
-                    peripheral.writeValue(chunk, for: characteristic, type: .withResponse)
-                    offset += length
+            // 연결된 기기가 있을 때만 실제 전송
+            if !subscribedCentrals.isEmpty {
+                let success = peripheralManager.updateValue(
+                    jsonData,
+                    for: characteristic,
+                    onSubscribedCentrals: nil // nil = 모든 구독 central에 전송
+                )
+                
+                if success {
+                    print("Data successfully sent: \(jsonData.count) bytes")
+                } else {
+                    print("Failed to send data - will retry when ready")
+                    // peripheralManagerIsReady 델리게이트 메서드에서 자동으로 재시도함
                 }
-                print("Data sent in multiple packets: \(dataLength) bytes total")
+            } else {
+                // 디버그 목적으로 로그만 남김
+                print("Data ready but no subscribers: \(jsonData.count) bytes")
             }
         } catch {
             print("Failed to serialize JSON data: \(error.localizedDescription)")
         }
     }
     
-    // MARK: - CBCentralManagerDelegate
+    // MARK: - Legacy Methods (for compatibility with previous CBCentralManager implementation)
     
-    func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        switch central.state {
+    /// 주변 기기 스캔 시작 (CBCentralManager 호환성 - 실제로는 광고 시작)
+    func startScanning() {
+        startAdvertising()
+        isScanning = isAdvertising // 호환성을 위해 상태 업데이트
+    }
+    
+    /// 주변 기기 스캔 중지 (CBCentralManager 호환성 - 실제로는 광고 중지)
+    func stopScanning() {
+        stopAdvertising()
+        isScanning = isAdvertising // 호환성을 위해 상태 업데이트
+    }
+    
+    /// 특정 기기에 연결 (CBCentralManager 호환성 - 무의미한 더미 메서드)
+    func connect(to peripheral: CBPeripheral) {
+        print("[Legacy] connect 메서드 호출됨 - 이제 peripheral 관리자로 변경되어 이 작업은 의미가 없습니다.")
+    }
+    
+    /// 연결 해제 (CBCentralManager 호환성 - 무의미한 더미 메서드)
+    func disconnect() {
+        print("[Legacy] disconnect 메서드 호출됨 - 이제 peripheral 관리자로 변경되어 이 작업은 의미가 없습니다.")
+    }
+    
+    // MARK: - CBPeripheralManagerDelegate
+    func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        switch peripheral.state {
         case .poweredOn:
             print("Bluetooth is powered on")
+            // 바로 광고 시작하지 않음 - 사용자가 명시적으로 시작해야 함
         case .poweredOff:
             print("Bluetooth is powered off")
+            isAdvertising = false
+            isScanning = false // 호환성 위한 상태 업데이트
             isConnected = false
-            connectedPeripheral = nil
+            subscribedCentrals.removeAll()
         case .resetting:
             print("Bluetooth is resetting")
         case .unauthorized:
@@ -165,93 +233,86 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
     }
     
-    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
-        // 이미 발견된 기기인지 확인
-        if !discoveredPeripherals.contains(where: { $0.identifier == peripheral.identifier }) {
-            discoveredPeripherals.append(peripheral)
-            print("Discovered device: \(peripheral.name ?? "Unknown") - RSSI: \(RSSI)")
-        }
-    }
-    
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        print("Connected to \(peripheral.name ?? "Unknown Device")")
-        connectedPeripheral = peripheral
-        isConnected = true
-        peripheral.delegate = self
-        
-        // 서비스 검색
-        peripheral.discoverServices([serviceUUID])
-    }
-    
-    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        print("Failed to connect to \(peripheral.name ?? "Unknown Device"): \(error?.localizedDescription ?? "Unknown error")")
-    }
-    
-    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        print("Disconnected from \(peripheral.name ?? "Unknown Device"): \(error?.localizedDescription ?? "No error")")
-        connectedPeripheral = nil
-        isConnected = false
-    }
-    // MARK: - CBPeripheralDelegate
-    
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+    func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
         if let error = error {
-            print("Error discovering services: \(error.localizedDescription)")
-            return
-        }
-        
-        guard let services = peripheral.services else { return }
-        
-        for service in services {
-            print("Discovered service: \(service.uuid)")
-            peripheral.discoverCharacteristics([characteristicUUID], for: service)
-        }
-    }
-    
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        if let error = error {
-            print("Error discovering characteristics: \(error.localizedDescription)")
-            return
-        }
-        
-        guard let characteristics = service.characteristics else { return }
-        
-        for characteristic in characteristics {
-            print("Discovered characteristic: \(characteristic.uuid)")
-            
-            if characteristic.uuid == characteristicUUID {
-                print("Found target characteristic for data transfer")
-                dataCharacteristic = characteristic
-                
-                // 알림 활성화 (기기가 알림을 지원하는 경우)
-                if characteristic.properties.contains(.notify) {
-                    peripheral.setNotifyValue(true, for: characteristic)
-                }
-            }
-        }
-    }
-    
-    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        if let error = error {
-            print("Error updating characteristic value: \(error.localizedDescription)")
-            return
-        }
-        
-        // 데이터 수신 처리 (필요한 경우)
-        if let data = characteristic.value {
-            print("Received data: \(data.count) bytes")
-            
-            if let stringValue = String(data: data, encoding: .utf8) {
-                print("Received string: \(stringValue)")
-            }
-        }
-    }
-    
-    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        if let error = error {
-            print("Error writing value to characteristic: \(error.localizedDescription)")
+            print("Error adding service: \(error.localizedDescription)")
         } else {
-            print("Successfully wrote value to characteristic")
+            print("Service added successfully: \(service.uuid)")
         }
+    }
+    
+    func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
+        if let error = error {
+            print("Error starting advertising: \(error.localizedDescription)")
+            isAdvertising = false
+            isScanning = false // 호환성을 위한 상태 업데이트
+        } else {
+            print("Advertising started successfully")
+            isAdvertising = true
+            isScanning = true // 호환성을 위한 상태 업데이트
+            
+            // 광고가 성공적으로 시작되면 알림 전송
+            NotificationCenter.default.post(name: Notification.Name("BluetoothAdvertisingStarted"), object: nil)
+        }
+    }
+    
+    func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
+        print("Central \(central.identifier.uuidString) subscribed to characteristic")
+        
+        if !subscribedCentrals.contains(where: { $0.identifier == central.identifier }) {
+            subscribedCentrals.append(central)
+        }
+        
+        isConnected = !subscribedCentrals.isEmpty
+        connectedCentral = subscribedCentrals.first
+        
+        // 호환성을 위한 상태 업데이트
+        if isConnected && connectedPeripheral == nil {
+            // 더미 CBPeripheral 객체는 생성할 수 없으므로 그냥 상태만 업데이트
+            print("Central connected (compatibility mode)")
+        }
+    }
+    
+    func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
+        print("Central \(central.identifier.uuidString) unsubscribed from characteristic")
+        
+        subscribedCentrals.removeAll { $0.identifier == central.identifier }
+        
+        isConnected = !subscribedCentrals.isEmpty
+        connectedCentral = subscribedCentrals.first
+        
+        // 호환성을 위한 상태 업데이트
+        if !isConnected {
+            connectedPeripheral = nil
+        }
+    }
+    
+    func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        print("Peripheral manager is ready to update subscribers")
+        // 여기서 보내지 못한 큐에 있는 데이터를 전송할 수 있음
+    }
+    
+    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
+        // 데이터 읽기 요청 처리
+        if request.characteristic.uuid == characteristicUUID {
+            // 빈 데이터 전송
+            request.value = "{}".data(using: .utf8)
+            peripheral.respond(to: request, withResult: .success)
+        } else {
+            peripheral.respond(to: request, withResult: .attributeNotFound)
+        }
+    }
+    
+    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
+        // 데이터 쓰기 요청 처리 (필요한 경우)
+        for request in requests {
+            if request.characteristic.uuid == characteristicUUID,
+               let value = request.value {
+                print("Received write request with value: \(value.count) bytes")
+                // 여기서 수신된 데이터를 처리할 수 있음
+            }
+        }
+        
+        peripheral.respond(to: requests[0], withResult: .success)
     }
 }

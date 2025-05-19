@@ -33,13 +33,13 @@ struct BluetoothView: View {
             .navigationTitle("블루투스 연결")
             .navigationBarItems(
                 leading: showFirstTimeInfo ? nil : Button(action: {
-                    if bluetoothManager.isScanning {
-                        bluetoothManager.stopScanning()
+                    if bluetoothManager.isAdvertising {
+                        bluetoothManager.stopAdvertising()
                     } else {
-                        bluetoothManager.startScanning()
+                        bluetoothManager.startAdvertising()
                     }
                 }) {
-                    Text(bluetoothManager.isScanning ? "스캔 중지" : "스캔 시작")
+                    Text(bluetoothManager.isAdvertising ? "광고 중지" : "광고 시작")
                 },
                 trailing: Button(action: {
                     presentationMode.wrappedValue.dismiss()
@@ -69,13 +69,13 @@ struct BluetoothView: View {
             
             Spacer().frame(height: 20)
             
-            // 권한 요청 및 스캔 시작 버튼
+            // 권한 요청 및 광고 시작 버튼
             Button(action: {
                 // 사용자가 명시적으로 블루투스 권한 요청
-                bluetoothManager.startScanning()
+                bluetoothManager.startAdvertising()
                 showFirstTimeInfo = false
             }) {
-                Text("기기 검색 시작")
+                Text("블루투스 광고 시작")
                     .fontWeight(.semibold)
                     .padding()
                     .frame(maxWidth: .infinity)
@@ -157,7 +157,7 @@ struct BluetoothView: View {
             Spacer()
             
             Button(action: {
-                bluetoothManager.disconnect()
+                bluetoothManager.stopAdvertising()
             }) {
                 Text("연결 해제")
                     .fontWeight(.bold)
@@ -173,64 +173,50 @@ struct BluetoothView: View {
     // 기기 리스트 화면
     private var deviceListView: some View {
         VStack {
-            if bluetoothManager.discoveredPeripherals.isEmpty {
-                if bluetoothManager.isScanning {
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                        
-                        Text("주변 기기를 검색 중입니다...")
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    VStack(spacing: 20) {
-                        Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                            .font(.system(size: 50))
-                            .foregroundColor(.secondary)
-                        
-                        Text("검색된 기기가 없습니다")
-                            .foregroundColor(.secondary)
-                        
-                        Button(action: {
-                            bluetoothManager.startScanning()
-                        }) {
-                            Text("스캔 시작")
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(Color.blue)
-                                .cornerRadius(10)
-                        }
-                    }
+            // 이제 "검색된 기기"가 아닌 "광고 상태"를 표시
+            if bluetoothManager.isAdvertising {
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    
+                    Text("블루투스 광고 중입니다...")
+                        .foregroundColor(.secondary)
+                    
+                    Text("다른 기기들이 이 앱을 발견하고 연결할 수 있습니다.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
+                    
+                    // 연결된 기기 수 표시
+                    Text("연결된 기기: \(bluetoothManager.subscribedCentrals.count)개")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .padding(.top, 16)
                 }
+                .padding()
             } else {
-                List {
-                    Section(header: Text("검색된 기기")) {
-                        ForEach(bluetoothManager.discoveredPeripherals, id: \.identifier) { peripheral in
-                            Button(action: {
-                                bluetoothManager.connect(to: peripheral)
-                            }) {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(peripheral.name ?? "Unknown Device")
-                                            .fontWeight(.semibold)
-                                        Text(peripheral.identifier.uuidString)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.blue)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+                VStack(spacing: 20) {
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 50))
+                        .foregroundColor(.secondary)
+                    
+                    Text("블루투스 광고가 중지되었습니다")
+                        .foregroundColor(.secondary)
+                    
+                    Button(action: {
+                        bluetoothManager.startAdvertising()
+                    }) {
+                        Text("광고 시작")
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.blue)
+                            .cornerRadius(10)
                     }
                 }
+                .padding()
             }
         }
     }

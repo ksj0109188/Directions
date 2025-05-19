@@ -66,12 +66,27 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         // BluetoothManager 상태 관찰
         setupBluetoothObservers()
+        
+        // 광고 시작 알림 등록
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(bluetoothAdvertisingStarted),
+            name: Notification.Name("BluetoothAdvertisingStarted"),
+            object: nil
+        )
     }
     
     deinit {
         stopLocationServices()
         stopMotionServices()
         stopDataTransmission()
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    // 블루투스 광고가 시작되면 자동으로 데이터 전송 시작
+    @objc private func bluetoothAdvertisingStarted() {
+        print("Bluetooth advertising started, beginning data transmission")
+        startDataTransmission()
     }
     
     // 위치 서비스 권한 상태 확인
@@ -167,12 +182,13 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func setupBluetoothObservers() {
         // 연결 상태에 따라 데이터 전송 시작/중지
         bluetoothManager.$isConnected
-            .sink { [weak self] isConnected in
+            .combineLatest(bluetoothManager.$subscribedCentrals)
+            .sink { [weak self] (isConnected, centrals) in
                 guard let self = self else { return }
                 
-                if isConnected && self.isDataTransmissionEnabled {
+                if isConnected && !centrals.isEmpty && self.isDataTransmissionEnabled {
                     self.startDataTransmission()
-                } else {
+                } else if centrals.isEmpty {
                     self.stopDataTransmission()
                 }
             }
@@ -182,15 +198,16 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // 데이터 전송 관련 Cancellable 저장
     private var cancellables = Set<AnyCancellable>()
     
-    // 블루투스 스캔 시작 - 사용자가 명시적으로 블루투스 기능을 시작할 때 호출
-    func startBluetoothScanning() {
-        bluetoothManager.startScanning()
+    // 블루투스 광고 시작 - 사용자가 명시적으로 블루투스 기능을 시작할 때 호출
+    func startBluetoothAdvertising() {
+        bluetoothManager.startAdvertising()
     }
     
     // 데이터 전송 시작
     func startDataTransmission() {
-        guard bluetoothManager.isConnected else {
-            print("Cannot start data transmission: No connected device")
+        // 블루투스가 연결되어 있고 광고 중인지 확인
+        if !bluetoothManager.isAdvertising {
+            print("블루투스 광고를 먼저 시작하세요")
             return
         }
         
@@ -199,13 +216,16 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         // 이미 실행 중인 타이머가 있다면 중지
         stopDataTransmission()
         
-        // 0.5초마다 데이터 전송
-        transmissionTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // 0.2초마다 데이터 전송 (더 자주 전송)
+        transmissionTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.sendCurrentDataViaBluetooth()
         }
         
-        print("Data transmission started")
+        // 첫 데이터는 즉시 전송
+        sendCurrentDataViaBluetooth()
+        
+        print("Data transmission started with high frequency")
     }
     
     // 데이터 전송 중지
@@ -292,8 +312,49 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.longitude = location.coordinate.longitude
             self.altitude = location.altitude
             
-            // 위치를 주소로 변환
-            self.getAddressFromLocation(location)
+            // 제한된 간격으로만 주소 변환 요청 (위치가 크게 변했거나 일정 시간이 지났을 때만)
+            self.throttledGeocodeRequest(for: location)
+            
+            // 데이터 전송은 계속 유지 (제한 없이)
+            if self.isDataTransmissionEnabled && self.bluetoothManager.isAdvertising {
+                self.sendCurrentDataViaBluetooth()
+            }
+        }
+    }
+    
+    // 마지막 주소 변환 요청 시간과 위치
+    private var lastGeocodingTime: Date = Date(timeIntervalSince1970: 0)
+    private var lastGeocodedLocation: CLLocation?
+    private let geocodingMinInterval: TimeInterval = 5.0 // 최소 5초 간격
+    private let geocodingMinDistance: CLLocationDistance = 50.0 // 최소 50미터 이동
+    
+    // 제한된 간격으로 Geocoding 요청 (주소 변환만 제한)
+    private func throttledGeocodeRequest(for location: CLLocation) {
+        let now = Date()
+        let timeSinceLastRequest = now.timeIntervalSince(lastGeocodingTime)
+        
+        var shouldRequestNewAddress = false
+        
+        // 마지막 요청으로부터 최소 간격이 지났는지 확인
+        if timeSinceLastRequest > geocodingMinInterval {
+            shouldRequestNewAddress = true
+        }
+        
+        // 일정 거리 이상 이동했는지 확인 (첫 요청이거나 거리 계산 가능할 때만)
+        if let lastLocation = lastGeocodedLocation {
+            let distance = location.distance(from: lastLocation)
+            if distance > geocodingMinDistance {
+                shouldRequestNewAddress = true
+            }
+        } else {
+            // 첫 요청인 경우
+            shouldRequestNewAddress = true
+        }
+        
+        if shouldRequestNewAddress {
+            lastGeocodingTime = now
+            lastGeocodedLocation = location
+            getAddressFromLocation(location)
         }
     }
     

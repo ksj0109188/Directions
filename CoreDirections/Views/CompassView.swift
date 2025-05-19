@@ -53,12 +53,12 @@ struct CompassView: View {
                     
                     Spacer()
                     
-                    // 블루투스 기기 검색 버튼
+                    // 블루투스 광고 시작 버튼
                     Button {
                         // 블루투스 권한이 처음 요청될 때 알림 표시
                         showPermissionAlert = true
                     } label: {
-                        Label("기기찾기", systemImage: "antenna.radiowaves.left.and.right")
+                        Label("데이터 전송", systemImage: "antenna.radiowaves.left.and.right")
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Color.blue.opacity(0.1))
@@ -68,11 +68,11 @@ struct CompassView: View {
                     .alert(isPresented: $showPermissionAlert) {
                         Alert(
                             title: Text("블루투스 권한 필요"),
-                            message: Text("다른 기기를 검색하기 위해 블루투스 권한이 필요합니다. 계속 진행하시겠습니까?"),
+                            message: Text("다른 기기로 나침반 데이터를 전송하기 위해 블루투스 권한이 필요합니다. 계속 진행하시겠습니까?"),
                             primaryButton: .default(Text("계속")) {
-                                // 사용자가 명시적으로 동의한 후에만 블루투스 스캔 시작
+                                // 사용자가 명시적으로 동의한 후에만 블루투스 광고 시작
                                 isFindBluetooth = true
-                                viewModel.startBluetoothScanning()
+                                viewModel.startBluetoothAdvertising()
                             },
                             secondaryButton: .cancel(Text("취소"))
                         )
