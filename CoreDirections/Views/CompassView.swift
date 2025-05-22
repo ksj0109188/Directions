@@ -53,12 +53,12 @@ struct CompassView: View {
                     
                     Spacer()
                     
-                    // 블루투스 광고 시작 버튼
+                    // 아두이노 블루투스 연결 버튼
                     Button {
                         isFindBluetooth = true
-                        viewModel.startBluetoothAdvertising()
+                        viewModel.startBluetoothScanning()
                     } label: {
-                        Label("데이터 전송", systemImage: "antenna.radiowaves.left.and.right")
+                        Label("아두이노 연결", systemImage: "antenna.radiowaves.left.and.right")
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Color.blue.opacity(0.1))
@@ -134,7 +134,7 @@ struct CompassView: View {
             }
         }
         .sheet(isPresented: $isFindBluetooth) {
-            BluetoothView(bluetoothManager: viewModel.bluetoothManager)
+            BluetoothView(arduinoBluetoothManager: viewModel.arduinoBluetoothManager)
         }
     }
 }

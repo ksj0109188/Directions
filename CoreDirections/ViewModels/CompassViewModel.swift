@@ -22,8 +22,8 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // 모션 관리자
     private let motionManager = CMMotionManager()
     
-    // 블루투스 관리자
-    @Published var bluetoothManager = BluetoothManager()
+    // 아두이노 블루투스 관리자 (Central 역할)
+    @Published var arduinoBluetoothManager = ArduinoBluetoothManager()
     
     // 위도 및 경도
     @Published var latitude: Double = 0
@@ -64,14 +64,14 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         // 현재 권한 상태 확인
         checkLocationAuthorizationStatus()
         
-        // BluetoothManager 상태 관찰
+        // ArduinoBluetoothManager 상태 관찰
         setupBluetoothObservers()
         
-        // 광고 시작 알림 등록
+        // 블루투스 연결 알림 등록
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(bluetoothAdvertisingStarted),
-            name: Notification.Name("BluetoothAdvertisingStarted"),
+            selector: #selector(bluetoothConnected),
+            name: Notification.Name("ArduinoBluetoothConnected"),
             object: nil
         )
     }
@@ -83,9 +83,9 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         NotificationCenter.default.removeObserver(self)
     }
     
-    // 블루투스 광고가 시작되면 자동으로 데이터 전송 시작
-    @objc private func bluetoothAdvertisingStarted() {
-        print("Bluetooth advertising started, beginning data transmission")
+    // 블루투스가 연결되면 자동으로 데이터 전송 시작
+    @objc private func bluetoothConnected() {
+        print("Arduino bluetooth connected, beginning data transmission")
         startDataTransmission()
     }
     
@@ -178,17 +178,16 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         isMotionServicesInitialized = false
     }
     
-    // BluetoothManager 상태 관찰 설정
+    // ArduinoBluetoothManager 상태 관찰 설정
     private func setupBluetoothObservers() {
         // 연결 상태에 따라 데이터 전송 시작/중지
-        bluetoothManager.$isConnected
-            .combineLatest(bluetoothManager.$subscribedCentrals)
-            .sink { [weak self] (isConnected, centrals) in
+        arduinoBluetoothManager.$isConnected
+            .sink { [weak self] isConnected in
                 guard let self = self else { return }
                 
-                if isConnected && !centrals.isEmpty && self.isDataTransmissionEnabled {
+                if isConnected && self.isDataTransmissionEnabled {
                     self.startDataTransmission()
-                } else if centrals.isEmpty {
+                } else if !isConnected {
                     self.stopDataTransmission()
                 }
             }
@@ -198,16 +197,16 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // 데이터 전송 관련 Cancellable 저장
     private var cancellables = Set<AnyCancellable>()
     
-    // 블루투스 광고 시작 - 사용자가 명시적으로 블루투스 기능을 시작할 때 호출
-    func startBluetoothAdvertising() {
-        bluetoothManager.startAdvertising()
+    // 아두이노 블루투스 스캔 시작 - 사용자가 명시적으로 블루투스 기능을 시작할 때 호출
+    func startBluetoothScanning() {
+        arduinoBluetoothManager.startScanning()
     }
     
     // 데이터 전송 시작
     func startDataTransmission() {
-        // 블루투스가 연결되어 있고 광고 중인지 확인
-        if !bluetoothManager.isAdvertising {
-            print("블루투스 광고를 먼저 시작하세요")
+        // 아두이노가 연결되어 있는지 확인
+        if !arduinoBluetoothManager.isConnected {
+            print("아두이노에 먼저 연결하세요")
             return
         }
         
@@ -241,7 +240,7 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     // 현재 데이터를 블루투스로 전송
     private func sendCurrentDataViaBluetooth() {
-        bluetoothManager.sendCompassData(
+        arduinoBluetoothManager.sendCompassData(
             compassData,
             latitude: latitude,
             longitude: longitude,
@@ -316,7 +315,7 @@ class CompassViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.throttledGeocodeRequest(for: location)
             
             // 데이터 전송은 계속 유지 (제한 없이)
-            if self.isDataTransmissionEnabled && self.bluetoothManager.isAdvertising {
+            if self.isDataTransmissionEnabled && self.arduinoBluetoothManager.isConnected {
                 self.sendCurrentDataViaBluetooth()
             }
         }
